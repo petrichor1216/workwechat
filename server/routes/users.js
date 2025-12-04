@@ -1,31 +1,46 @@
 const express = require('express');
 const router = express.Router();
-const { pool, logOperation } = require('../database');
+const { db, _, COLLECTIONS, logOperation } = require('../database');
 const { requirePermission } = require('../auth');
+
+const usersCollection = db.collection(COLLECTIONS.USERS);
 
 // 获取用户列表（仅管理员）
 router.get('/', requirePermission('user:manage'), async (req, res) => {
   try {
     const { role, is_active, limit = 100, offset = 0 } = req.query;
 
-    let sql = 'SELECT id, userid, name, avatar, role, is_active, last_login_at, created_at FROM users WHERE 1=1';
-    const params = [];
+    let query = usersCollection.orderBy('created_at', 'desc');
 
-    if (role) {
-      sql += ' AND role = ?';
-      params.push(role);
-    }
-
+    const conditions = {};
+    if (role) conditions.role = role;
     if (is_active !== undefined) {
-      sql += ' AND is_active = ?';
-      params.push(is_active === 'true' ? 1 : 0);
+      conditions.is_active = is_active === 'true';
     }
 
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    if (Object.keys(conditions).length > 0) {
+      query = query.where(conditions);
+    }
 
-    const [users] = await pool.execute(sql, params);
-    res.json(users);
+    const { data: users } = await query
+      .skip(parseInt(offset))
+      .limit(parseInt(limit))
+      .get();
+
+    // 过滤敏感字段
+    const result = users.map(u => ({
+      id: u.id,
+      _id: u._id,
+      userid: u.userid,
+      name: u.name,
+      avatar: u.avatar,
+      role: u.role,
+      is_active: u.is_active,
+      last_login_at: u.last_login_at,
+      created_at: u.created_at
+    }));
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -34,16 +49,26 @@ router.get('/', requirePermission('user:manage'), async (req, res) => {
 // 获取单个用户信息
 router.get('/:userid', requirePermission('user:manage'), async (req, res) => {
   try {
-    const [users] = await pool.execute(
-      'SELECT id, userid, name, avatar, role, is_active, last_login_at, created_at FROM users WHERE userid = ?',
-      [req.params.userid]
-    );
+    const { data: users } = await usersCollection
+      .where({ userid: req.params.userid })
+      .get();
 
     if (users.length === 0) {
       return res.status(404).json({ error: '用户不存在' });
     }
 
-    res.json(users[0]);
+    const u = users[0];
+    res.json({
+      id: u.id,
+      _id: u._id,
+      userid: u.userid,
+      name: u.name,
+      avatar: u.avatar,
+      role: u.role,
+      is_active: u.is_active,
+      last_login_at: u.last_login_at,
+      created_at: u.created_at
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -64,36 +89,43 @@ router.post('/', requirePermission('user:manage'), async (req, res) => {
     }
 
     // 检查用户是否已存在
-    const [existing] = await pool.execute(
-      'SELECT * FROM users WHERE userid = ?',
-      [userid]
-    );
+    const { data: existing } = await usersCollection
+      .where({ userid: userid })
+      .get();
 
     if (existing.length > 0) {
       return res.status(400).json({ error: '用户已存在' });
     }
 
-    await pool.execute(
-      'INSERT INTO users (userid, name, role) VALUES (?, ?, ?)',
-      [userid, name || userid, role || 'viewer']
-    );
+    const now = new Date();
+    const userData = {
+      userid,
+      name: name || userid,
+      role: role || 'viewer',
+      is_active: true,
+      created_at: now,
+      updated_at: now
+    };
 
-    const [users] = await pool.execute(
-      'SELECT id, userid, name, avatar, role, is_active, created_at FROM users WHERE userid = ?',
-      [userid]
-    );
+    await usersCollection.add(userData);
+
+    const user = {
+      ...userData,
+      avatar: null,
+      last_login_at: null
+    };
 
     // 记录操作日志
     await logOperation(req, {
       action: 'create',
       targetType: 'user',
-      targetId: users[0].id,
-      targetName: users[0].name,
-      content: `添加用户: ${users[0].name} (${users[0].userid}), 角色: ${users[0].role}`,
-      afterData: users[0]
+      targetId: userid,
+      targetName: user.name,
+      content: `添加用户: ${user.name} (${user.userid}), 角色: ${user.role}`,
+      afterData: user
     });
 
-    res.status(201).json(users[0]);
+    res.status(201).json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -106,10 +138,9 @@ router.put('/:userid', requirePermission('user:manage'), async (req, res) => {
     const targetUserid = req.params.userid;
 
     // 获取原用户信息
-    const [existing] = await pool.execute(
-      'SELECT * FROM users WHERE userid = ?',
-      [targetUserid]
-    );
+    const { data: existing } = await usersCollection
+      .where({ userid: targetUserid })
+      .get();
 
     if (existing.length === 0) {
       return res.status(404).json({ error: '用户不存在' });
@@ -127,46 +158,34 @@ router.put('/:userid', requirePermission('user:manage'), async (req, res) => {
       return res.status(400).json({ error: '无效的角色' });
     }
 
-    const updates = [];
-    const params = [];
-
-    if (name !== undefined) {
-      updates.push('name = ?');
-      params.push(name);
-    }
-    if (role !== undefined) {
-      updates.push('role = ?');
-      params.push(role);
-    }
-    if (is_active !== undefined) {
-      // 不能禁用自己
-      if (targetUserid === req.user.userid && !is_active) {
-        return res.status(400).json({ error: '不能禁用自己的账号' });
-      }
-      updates.push('is_active = ?');
-      params.push(is_active ? 1 : 0);
+    // 不能禁用自己
+    if (targetUserid === req.user.userid && is_active === false) {
+      return res.status(400).json({ error: '不能禁用自己的账号' });
     }
 
-    if (updates.length === 0) {
+    const updateData = { updated_at: new Date() };
+    if (name !== undefined) updateData.name = name;
+    if (role !== undefined) updateData.role = role;
+    if (is_active !== undefined) updateData.is_active = is_active;
+
+    if (Object.keys(updateData).length === 1) {
       return res.status(400).json({ error: '没有要更新的字段' });
     }
 
-    params.push(targetUserid);
-    await pool.execute(
-      `UPDATE users SET ${updates.join(', ')} WHERE userid = ?`,
-      params
-    );
+    await usersCollection
+      .where({ userid: targetUserid })
+      .update(updateData);
 
-    const [users] = await pool.execute(
-      'SELECT id, userid, name, avatar, role, is_active, created_at FROM users WHERE userid = ?',
-      [targetUserid]
-    );
+    const newUser = {
+      ...oldUser,
+      ...updateData
+    };
 
     // 生成变更描述
     const changes = [];
     if (name !== undefined && name !== oldUser.name) changes.push(`名称: ${oldUser.name} → ${name}`);
     if (role !== undefined && role !== oldUser.role) changes.push(`角色: ${oldUser.role} → ${role}`);
-    if (is_active !== undefined && (is_active ? 1 : 0) !== oldUser.is_active) {
+    if (is_active !== undefined && is_active !== oldUser.is_active) {
       changes.push(`状态: ${oldUser.is_active ? '启用' : '禁用'} → ${is_active ? '启用' : '禁用'}`);
     }
 
@@ -174,14 +193,21 @@ router.put('/:userid', requirePermission('user:manage'), async (req, res) => {
     await logOperation(req, {
       action: 'update',
       targetType: 'user',
-      targetId: users[0].id,
-      targetName: users[0].name,
-      content: `修改用户: ${users[0].name} (${users[0].userid}) - ${changes.join(', ')}`,
+      targetId: targetUserid,
+      targetName: newUser.name,
+      content: `修改用户: ${newUser.name} (${newUser.userid}) - ${changes.join(', ')}`,
       beforeData: oldUser,
-      afterData: users[0]
+      afterData: newUser
     });
 
-    res.json(users[0]);
+    res.json({
+      userid: newUser.userid,
+      name: newUser.name,
+      avatar: newUser.avatar,
+      role: newUser.role,
+      is_active: newUser.is_active,
+      created_at: newUser.created_at
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -197,10 +223,9 @@ router.delete('/:userid', requirePermission('user:manage'), async (req, res) => 
       return res.status(400).json({ error: '不能删除自己的账号' });
     }
 
-    const [existing] = await pool.execute(
-      'SELECT * FROM users WHERE userid = ?',
-      [targetUserid]
-    );
+    const { data: existing } = await usersCollection
+      .where({ userid: targetUserid })
+      .get();
 
     if (existing.length === 0) {
       return res.status(404).json({ error: '用户不存在' });
@@ -208,13 +233,13 @@ router.delete('/:userid', requirePermission('user:manage'), async (req, res) => 
 
     const oldUser = existing[0];
 
-    await pool.execute('DELETE FROM users WHERE userid = ?', [targetUserid]);
+    await usersCollection.where({ userid: targetUserid }).remove();
 
     // 记录操作日志
     await logOperation(req, {
       action: 'delete',
       targetType: 'user',
-      targetId: oldUser.id,
+      targetId: targetUserid,
       targetName: oldUser.name,
       content: `删除用户: ${oldUser.name} (${oldUser.userid}), 角色: ${oldUser.role}`,
       beforeData: oldUser

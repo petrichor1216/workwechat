@@ -1,129 +1,49 @@
-const mysql = require('mysql2/promise');
+const cloudbase = require('@cloudbase/node-sdk');
 
-// 数据库配置（通过环境变量配置）
-const dbConfig = {
-  host: process.env.MYSQL_HOST || process.env.MYSQL_ADDRESS?.split(':')[0] || 'localhost',
-  port: parseInt(process.env.MYSQL_PORT || process.env.MYSQL_ADDRESS?.split(':')[1] || '3306'),
-  user: process.env.MYSQL_USER || process.env.MYSQL_USERNAME || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
-  database: process.env.MYSQL_DATABASE || 'inventory',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  charset: 'utf8mb4'
+// 初始化 CloudBase
+const app = cloudbase.init({
+  env: process.env.ENV_ID || process.env.CBR_ENV_ID
+});
+
+// 获取数据库引用
+const db = app.database();
+const _ = db.command;
+
+// 集合名称
+const COLLECTIONS = {
+  PRODUCTS: 'products',
+  SALES: 'sales',
+  INVENTORY_LOGS: 'inventory_logs',
+  OPERATION_LOGS: 'operation_logs',
+  USERS: 'users'
 };
 
-// 创建连接池
-const pool = mysql.createPool(dbConfig);
-
-// 初始化数据库表
+// 初始化数据库（创建索引等）
 async function initDatabase() {
-  const connection = await pool.getConnection();
   try {
-    // 商品表
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS products (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        price DECIMAL(10,2) NOT NULL DEFAULT 0,
-        cost DECIMAL(10,2) NOT NULL DEFAULT 0,
-        stock INT NOT NULL DEFAULT 0,
-        is_custom TINYINT(1) NOT NULL DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
+    // 检查并创建默认管理员
+    const usersCollection = db.collection(COLLECTIONS.USERS);
+    const { total } = await usersCollection
+      .where({ role: 'admin' })
+      .count();
 
-    // 销售记录表
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS sales (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        product_id INT,
-        product_name VARCHAR(255) NOT NULL,
-        quantity INT NOT NULL DEFAULT 1,
-        price DECIMAL(10,2) NOT NULL,
-        cost DECIMAL(10,2) NOT NULL DEFAULT 0,
-        is_custom TINYINT(1) NOT NULL DEFAULT 0,
-        customer VARCHAR(255),
-        remark TEXT,
-        sale_date DATE NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-
-    // 库存记录表
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS inventory_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        product_id INT NOT NULL,
-        type ENUM('in', 'out') NOT NULL,
-        quantity INT NOT NULL,
-        remark VARCHAR(500),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-
-    // 操作日志表
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS operation_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        operator_id VARCHAR(100),
-        operator_name VARCHAR(100),
-        device_id VARCHAR(100),
-        action VARCHAR(50) NOT NULL,
-        target_type VARCHAR(50) NOT NULL,
-        target_id INT,
-        target_name VARCHAR(255),
-        content TEXT,
-        before_data JSON,
-        after_data JSON,
-        ip_address VARCHAR(50),
-        user_agent VARCHAR(500),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_created_at (created_at),
-        INDEX idx_action (action),
-        INDEX idx_target_type (target_type)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-
-    // 用户表
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        userid VARCHAR(100) NOT NULL UNIQUE,
-        name VARCHAR(100),
-        avatar VARCHAR(500),
-        role ENUM('admin', 'staff', 'viewer') NOT NULL DEFAULT 'viewer',
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        last_login_at TIMESTAMP NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_userid (userid),
-        INDEX idx_role (role)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `);
-
-    // 插入默认管理员（如果不存在）
-    const [admins] = await connection.execute(
-      "SELECT COUNT(*) as count FROM users WHERE role = 'admin'"
-    );
-    if (admins[0].count === 0) {
-      // 默认管理员 userid，可通过环境变量配置
+    if (total === 0) {
       const defaultAdmin = process.env.DEFAULT_ADMIN_USERID || 'admin';
-      await connection.execute(
-        "INSERT IGNORE INTO users (userid, name, role) VALUES (?, '管理员', 'admin')",
-        [defaultAdmin]
-      );
+      await usersCollection.add({
+        userid: defaultAdmin,
+        name: '管理员',
+        role: 'admin',
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date()
+      });
+      console.log('默认管理员已创建');
     }
 
-    console.log('数据库表初始化完成');
+    console.log('CloudBase 数据库初始化完成');
   } catch (error) {
     console.error('数据库初始化失败:', error);
-    throw error;
-  } finally {
-    connection.release();
+    // 不抛出错误，让应用继续启动
   }
 }
 
@@ -138,39 +58,68 @@ async function logOperation(req, {
   afterData         // 操作后数据
 }) {
   try {
-    // 优先从 req.user 获取用户信息（已登录用户）
     const operatorId = req.user?.userid || req.headers['x-operator-id'] || null;
     const operatorName = req.user?.name || req.headers['x-operator-name'] || null;
     const deviceId = req.headers['x-device-id'] || req.headers['x-forwarded-for'] || req.ip;
     const ipAddress = req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress;
     const userAgent = req.headers['user-agent'] || '';
 
-    await pool.execute(`
-      INSERT INTO operation_logs
-      (operator_id, operator_name, device_id, action, target_type, target_id, target_name, content, before_data, after_data, ip_address, user_agent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      operatorId,
-      operatorName,
-      deviceId,
+    await db.collection(COLLECTIONS.OPERATION_LOGS).add({
+      operator_id: operatorId,
+      operator_name: operatorName,
+      device_id: deviceId,
       action,
-      targetType,
-      targetId || null,
-      targetName || null,
+      target_type: targetType,
+      target_id: targetId || null,
+      target_name: targetName || null,
       content,
-      beforeData ? JSON.stringify(beforeData) : null,
-      afterData ? JSON.stringify(afterData) : null,
-      ipAddress,
-      userAgent
-    ]);
+      before_data: beforeData || null,
+      after_data: afterData || null,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+      created_at: new Date()
+    });
   } catch (error) {
     console.error('记录操作日志失败:', error);
-    // 不抛出错误，日志记录失败不影响主业务
+  }
+}
+
+// 生成自增ID（模拟MySQL的AUTO_INCREMENT）
+async function generateId(collectionName) {
+  const counterCollection = db.collection('counters');
+
+  try {
+    // 尝试更新计数器
+    const { updated } = await counterCollection
+      .where({ _id: collectionName })
+      .update({
+        seq: _.inc(1)
+      });
+
+    if (updated === 0) {
+      // 计数器不存在，创建它
+      await counterCollection.add({
+        _id: collectionName,
+        seq: 1
+      });
+      return 1;
+    }
+
+    // 获取更新后的值
+    const { data } = await counterCollection.doc(collectionName).get();
+    return data.seq;
+  } catch (error) {
+    // 并发情况下可能创建失败，重试获取
+    const { data } = await counterCollection.doc(collectionName).get();
+    return data.seq;
   }
 }
 
 module.exports = {
-  pool,
+  db,
+  _,
+  COLLECTIONS,
   initDatabase,
-  logOperation
+  logOperation,
+  generateId
 };

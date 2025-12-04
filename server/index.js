@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { initDatabase, pool } = require('./database');
+const { initDatabase, db, COLLECTIONS } = require('./database');
 const { authMiddleware } = require('./auth');
 
 const app = express();
@@ -42,9 +42,9 @@ if (process.env.NODE_ENV === 'production') {
 // 健康检查端点（云托管需要）
 app.get('/health', async (req, res) => {
   try {
-    // 检查数据库连接
-    await pool.execute('SELECT 1');
-    res.status(200).json({ status: 'ok', database: 'connected' });
+    // 检查 CloudBase 数据库连接
+    await db.collection(COLLECTIONS.USERS).count();
+    res.status(200).json({ status: 'ok', database: 'cloudbase' });
   } catch (error) {
     res.status(503).json({ status: 'error', database: 'disconnected', error: error.message });
   }
@@ -55,7 +55,7 @@ async function start() {
   try {
     // 初始化数据库
     await initDatabase();
-    console.log('数据库连接成功');
+    console.log('CloudBase 数据库连接成功');
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`服务器运行在端口 ${PORT}`);

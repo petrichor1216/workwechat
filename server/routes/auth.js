@@ -1,15 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../database');
+const { db, COLLECTIONS } = require('../database');
 const {
   getUserByCode,
   getUserDetail,
   generateToken,
-  hasPermission,
   PERMISSIONS,
   CORP_ID,
   AGENT_ID
 } = require('../auth');
+
+const usersCollection = db.collection(COLLECTIONS.USERS);
 
 // 获取企业微信配置（前端需要用于 JS-SDK）
 router.get('/config', (req, res) => {
@@ -31,32 +32,32 @@ router.post('/login', async (req, res) => {
     // 开发模式：模拟登录
     if (process.env.NODE_ENV !== 'production' && code.startsWith('dev_')) {
       const userid = code.replace('dev_', '') || 'dev_user';
-      const [users] = await pool.execute(
-        'SELECT * FROM users WHERE userid = ? AND is_active = 1',
-        [userid]
-      );
+      const { data: users } = await usersCollection
+        .where({ userid: userid, is_active: true })
+        .get();
 
       let user;
       if (users.length === 0) {
         // 首次登录，创建用户
-        await pool.execute(
-          'INSERT INTO users (userid, name, role) VALUES (?, ?, ?)',
-          [userid, `用户_${userid}`, 'viewer']
-        );
-        const [newUsers] = await pool.execute(
-          'SELECT * FROM users WHERE userid = ?',
-          [userid]
-        );
-        user = newUsers[0];
+        const now = new Date();
+        const userData = {
+          userid,
+          name: `用户_${userid}`,
+          role: 'viewer',
+          is_active: true,
+          created_at: now,
+          updated_at: now
+        };
+        await usersCollection.add(userData);
+        user = userData;
       } else {
         user = users[0];
       }
 
       // 更新最后登录时间
-      await pool.execute(
-        'UPDATE users SET last_login_at = NOW() WHERE userid = ?',
-        [userid]
-      );
+      await usersCollection
+        .where({ userid: userid })
+        .update({ last_login_at: new Date() });
 
       const token = generateToken(user);
       return res.json({
@@ -84,10 +85,9 @@ router.post('/login', async (req, res) => {
     }
 
     // 查询用户
-    const [users] = await pool.execute(
-      'SELECT * FROM users WHERE userid = ? AND is_active = 1',
-      [userid]
-    );
+    const { data: users } = await usersCollection
+      .where({ userid: userid, is_active: true })
+      .get();
 
     let user;
     if (users.length === 0) {
@@ -99,25 +99,26 @@ router.post('/login', async (req, res) => {
         console.error('获取用户详情失败:', e);
       }
 
-      await pool.execute(
-        'INSERT INTO users (userid, name, avatar, role) VALUES (?, ?, ?, ?)',
-        [userid, userDetail.name, userDetail.avatar || null, 'viewer']
-      );
-
-      const [newUsers] = await pool.execute(
-        'SELECT * FROM users WHERE userid = ?',
-        [userid]
-      );
-      user = newUsers[0];
+      const now = new Date();
+      const userData = {
+        userid,
+        name: userDetail.name,
+        avatar: userDetail.avatar || null,
+        role: 'viewer',
+        is_active: true,
+        created_at: now,
+        updated_at: now
+      };
+      await usersCollection.add(userData);
+      user = userData;
     } else {
       user = users[0];
     }
 
     // 更新最后登录时间
-    await pool.execute(
-      'UPDATE users SET last_login_at = NOW() WHERE userid = ?',
-      [userid]
-    );
+    await usersCollection
+      .where({ userid: userid })
+      .update({ last_login_at: new Date() });
 
     const token = generateToken(user);
     res.json({
@@ -142,10 +143,9 @@ router.get('/me', async (req, res) => {
       return res.status(401).json({ error: '未登录' });
     }
 
-    const [users] = await pool.execute(
-      'SELECT * FROM users WHERE userid = ? AND is_active = 1',
-      [req.user.userid]
-    );
+    const { data: users } = await usersCollection
+      .where({ userid: req.user.userid, is_active: true })
+      .get();
 
     if (users.length === 0) {
       return res.status(401).json({ error: '用户不存在或已禁用' });
@@ -178,10 +178,9 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: '未登录' });
     }
 
-    const [users] = await pool.execute(
-      'SELECT * FROM users WHERE userid = ? AND is_active = 1',
-      [req.user.userid]
-    );
+    const { data: users } = await usersCollection
+      .where({ userid: req.user.userid, is_active: true })
+      .get();
 
     if (users.length === 0) {
       return res.status(401).json({ error: '用户不存在或已禁用' });

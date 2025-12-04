@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
-const { pool } = require('./database');
 
 // JWT 密钥（生产环境应使用环境变量）
 const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key-change-in-production';
