@@ -98,8 +98,8 @@ function verifyToken(token) {
 
 // 认证中间件
 function authMiddleware(req, res, next) {
-  // 跳过登录相关接口
-  if (req.path.startsWith('/api/auth/')) {
+  // 跳过登录相关接口（注意：中间件挂载在 /api，所以 req.path 不包含 /api 前缀）
+  if (req.path.startsWith('/auth/')) {
     return next();
   }
 
