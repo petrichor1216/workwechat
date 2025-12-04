@@ -38,4 +38,11 @@ export const statsApi = {
   ranking: (params) => api.get('/stats/ranking', { params })
 }
 
+// 操作日志相关
+export const logsApi = {
+  list: (params) => api.get('/logs', { params }),
+  get: (id) => api.get(`/logs/${id}`),
+  stats: () => api.get('/logs/stats')
+}
+
 export default api

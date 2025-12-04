@@ -24,6 +24,10 @@
         <span class="tab-icon">📈</span>
         <span class="tab-text">统计</span>
       </router-link>
+      <router-link to="/logs" class="tab-item" :class="{ active: $route.path === '/logs' }">
+        <span class="tab-icon">📝</span>
+        <span class="tab-text">日志</span>
+      </router-link>
     </nav>
   </div>
 </template>

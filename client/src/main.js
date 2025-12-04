@@ -9,7 +9,8 @@ const routes = [
   { path: '/products', component: () => import('./views/Products.vue'), meta: { title: '商品管理' } },
   { path: '/sales', component: () => import('./views/Sales.vue'), meta: { title: '销售记录' } },
   { path: '/inventory', component: () => import('./views/Inventory.vue'), meta: { title: '库存管理' } },
-  { path: '/stats', component: () => import('./views/Stats.vue'), meta: { title: '数据统计' } }
+  { path: '/stats', component: () => import('./views/Stats.vue'), meta: { title: '数据统计' } },
+  { path: '/logs', component: () => import('./views/Logs.vue'), meta: { title: '操作日志' } }
 ]
 
 const router = createRouter({
