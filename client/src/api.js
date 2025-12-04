@@ -31,8 +31,8 @@ api.interceptors.response.use(
 
 // 认证相关
 export const authApi = {
-  config: () => api.get('/auth/config'),
-  login: (code) => api.post('/auth/login', { code }),
+  loginAdmin: (password) => api.post('/auth/login/admin', { password }),
+  loginStaff: () => api.post('/auth/login/staff'),
   me: () => api.get('/auth/me'),
   refresh: () => api.post('/auth/refresh')
 }

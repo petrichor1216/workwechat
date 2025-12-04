@@ -2,36 +2,52 @@
   <div class="login-page">
     <div class="login-card">
       <h1 class="login-title">私域进销存</h1>
-      <p class="login-subtitle">企业微信登录</p>
+      <p class="login-subtitle">请选择您的身份</p>
 
       <div v-if="loading" class="login-loading">
         <div class="spinner"></div>
         <p>正在登录...</p>
       </div>
 
-      <div v-else-if="error" class="login-error">
-        <p>{{ error }}</p>
-        <button class="btn btn-primary" @click="startLogin">重新登录</button>
-      </div>
-
-      <div v-else class="login-action">
-        <button class="btn btn-primary btn-block btn-large" @click="startLogin">
-          企业微信授权登录
+      <div v-else class="login-buttons">
+        <button class="login-btn admin-btn" @click="showAdminLogin">
+          <span class="btn-icon">👔</span>
+          <span class="btn-text">管理员登录</span>
+          <span class="btn-hint">需要密码</span>
         </button>
-        <p class="login-hint">请在企业微信中打开本应用</p>
 
-        <!-- 开发模式：模拟登录 -->
-        <div v-if="isDev" class="dev-login">
-          <p class="dev-hint">开发模式</p>
-          <input
-            type="text"
-            class="form-input"
-            v-model="devUserId"
-            placeholder="输入用户ID"
-          />
-          <button class="btn btn-default btn-block" @click="devLogin">
-            模拟登录
-          </button>
+        <button class="login-btn staff-btn" @click="staffLogin">
+          <span class="btn-icon">🏪</span>
+          <span class="btn-text">店员登录</span>
+          <span class="btn-hint">无需密码</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 管理员密码弹窗 -->
+    <div class="modal-overlay" v-if="showPasswordModal" @click.self="closePasswordModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title">管理员登录</span>
+          <span class="modal-close" @click="closePasswordModal">×</span>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">请输入管理员密码</label>
+            <input
+              type="password"
+              class="form-input"
+              v-model="password"
+              placeholder="请输入密码"
+              @keyup.enter="adminLogin"
+              ref="passwordInput"
+            />
+          </div>
+          <p v-if="error" class="error-text">{{ error }}</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-default" @click="closePasswordModal">取消</button>
+          <button class="btn btn-primary" @click="adminLogin" :disabled="!password">确认登录</button>
         </div>
       </div>
     </div>
@@ -39,71 +55,36 @@
 </template>
 
 <script>
-import { login } from '../auth'
 import { authApi } from '../api'
+import { login as authLogin } from '../auth'
 
 export default {
   name: 'Login',
   data() {
     return {
       loading: false,
-      error: '',
-      devUserId: 'admin',
-      isDev: import.meta.env.DEV,
-      corpId: '',
-      agentId: ''
-    }
-  },
-  async mounted() {
-    // 获取企业微信配置
-    try {
-      const { data } = await authApi.config()
-      this.corpId = data.corpId
-      this.agentId = data.agentId
-    } catch (e) {
-      console.error('获取配置失败:', e)
-    }
-
-    // 检查 URL 中是否有 code 参数（OAuth 回调）
-    const urlParams = new URLSearchParams(window.location.search)
-    const code = urlParams.get('code')
-    if (code) {
-      await this.handleOAuthCallback(code)
+      showPasswordModal: false,
+      password: '',
+      error: ''
     }
   },
   methods: {
-    startLogin() {
-      if (!this.corpId) {
-        this.error = '企业微信配置未设置'
-        return
-      }
-
-      // 构建企业微信 OAuth 授权 URL
-      const redirectUri = encodeURIComponent(window.location.origin + '/login')
-      const oauthUrl = `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${this.corpId}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_privateinfo&agentid=${this.agentId}&state=STATE#wechat_redirect`
-
-      window.location.href = oauthUrl
-    },
-    async handleOAuthCallback(code) {
-      this.loading = true
+    showAdminLogin() {
+      this.showPasswordModal = true
+      this.password = ''
       this.error = ''
-
-      try {
-        await login(code)
-        // 登录成功，跳转到首页
-        this.$router.replace('/')
-      } catch (error) {
-        console.error('登录失败:', error)
-        this.error = error.response?.data?.error || '登录失败，请重试'
-      } finally {
-        this.loading = false
-        // 清除 URL 中的 code 参数
-        window.history.replaceState({}, '', '/login')
-      }
+      this.$nextTick(() => {
+        this.$refs.passwordInput?.focus()
+      })
     },
-    async devLogin() {
-      if (!this.devUserId.trim()) {
-        this.error = '请输入用户ID'
+    closePasswordModal() {
+      this.showPasswordModal = false
+      this.password = ''
+      this.error = ''
+    },
+    async adminLogin() {
+      if (!this.password) {
+        this.error = '请输入密码'
         return
       }
 
@@ -111,12 +92,34 @@ export default {
       this.error = ''
 
       try {
-        await login('dev_' + this.devUserId.trim())
+        const { data } = await authApi.loginAdmin(this.password)
+        // 保存登录状态
+        localStorage.setItem('token', data.token)
+        localStorage.setItem('user', JSON.stringify(data.user))
+        // 触发 auth 更新
+        authLogin(data.token, data.user)
+        // 跳转首页
         this.$router.replace('/')
       } catch (error) {
-        console.error('登录失败:', error)
         this.error = error.response?.data?.error || '登录失败'
-      } finally {
+        this.loading = false
+      }
+    },
+    async staffLogin() {
+      this.loading = true
+      this.error = ''
+
+      try {
+        const { data } = await authApi.loginStaff()
+        // 保存登录状态
+        localStorage.setItem('token', data.token)
+        localStorage.setItem('user', JSON.stringify(data.user))
+        // 触发 auth 更新
+        authLogin(data.token, data.user)
+        // 跳转首页
+        this.$router.replace('/')
+      } catch (error) {
+        this.error = error.response?.data?.error || '登录失败'
         this.loading = false
       }
     }
@@ -158,7 +161,7 @@ export default {
 }
 
 .login-loading {
-  padding: 20px;
+  padding: 40px 20px;
 }
 
 .spinner {
@@ -175,57 +178,159 @@ export default {
   to { transform: rotate(360deg); }
 }
 
-.login-error {
+.login-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 20px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.admin-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.admin-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.staff-btn {
+  background: linear-gradient(135deg, #07c160 0%, #06ad56 100%);
+  color: #fff;
+}
+
+.staff-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(7, 193, 96, 0.4);
+}
+
+.btn-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.btn-text {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.btn-hint {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* 弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
   padding: 20px;
 }
 
-.login-error p {
-  color: #fa5151;
-  margin-bottom: 16px;
+.modal-content {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 320px;
+  overflow: hidden;
 }
 
-.login-action {
-  padding: 10px 0;
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
 }
 
-.btn-large {
-  padding: 14px 20px;
-  font-size: 16px;
+.modal-title {
+  font-size: 17px;
+  font-weight: 600;
 }
 
-.login-hint {
-  font-size: 12px;
+.modal-close {
+  font-size: 24px;
   color: #999;
-  margin-top: 16px;
+  cursor: pointer;
+  line-height: 1;
 }
 
-.dev-login {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px dashed #ddd;
+.modal-body {
+  padding: 20px;
 }
 
-.dev-hint {
-  font-size: 12px;
-  color: #ff9800;
-  margin-bottom: 12px;
+.modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #eee;
 }
 
-.dev-login .form-input {
-  margin-bottom: 12px;
+.form-group {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  border-color: #07c160;
+}
+
+.error-text {
+  color: #fa5151;
+  font-size: 13px;
+  margin-top: 12px;
+  margin-bottom: 0;
 }
 
 .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-size: 14px;
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 15px;
   font-weight: 500;
   border: none;
   cursor: pointer;
   transition: opacity 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-primary {
@@ -236,20 +341,5 @@ export default {
 .btn-default {
   background: #f5f5f5;
   color: #333;
-}
-
-.btn-block {
-  display: flex;
-  width: 100%;
-}
-
-.form-input {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 15px;
-  outline: none;
-  box-sizing: border-box;
 }
 </style>

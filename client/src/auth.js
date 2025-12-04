@@ -38,14 +38,9 @@ export async function initAuth() {
   authState.isLoading = false
 }
 
-// 登录
-export async function login(code) {
-  const { data } = await authApi.login(code)
-
-  localStorage.setItem('token', data.token)
-  localStorage.setItem('user', JSON.stringify(data.user))
-
-  authState.user = data.user
+// 登录（设置认证状态）
+export async function login(token, user) {
+  authState.user = user
   authState.isLoggedIn = true
 
   // 获取完整权限
@@ -58,7 +53,7 @@ export async function login(code) {
     console.error('获取用户权限失败:', e)
   }
 
-  return data
+  return { token, user }
 }
 
 // 登出
