@@ -255,9 +255,9 @@ router.delete('/:userid', requirePermission('user:manage'), async (req, res) => 
 router.get('/roles/info', async (req, res) => {
   res.json({
     roles: [
-      { value: 'admin', label: '管理员', description: '所有权限，可管理用户' },
-      { value: 'staff', label: '店员', description: '可添加销售记录、管理库存，不能删除' },
-      { value: 'viewer', label: '查看者', description: '只能查看数据，不能操作' }
+      { value: 'admin', label: '管理员', description: '所有权限：商品增删改、销售增删、库存入出、查看日志、管理用户' },
+      { value: 'staff', label: '店员', description: '可添加销售记录、查看商品和库存，不能删除或修改' },
+      { value: 'viewer', label: '查看者', description: '只能查看数据，不能进行任何操作' }
     ]
   });
 });

@@ -137,19 +137,19 @@ function authMiddleware(req, res, next) {
 // 权限定义
 const PERMISSIONS = {
   // 商品管理
-  'product:create': ['admin', 'staff'],
-  'product:update': ['admin', 'staff'],
+  'product:create': ['admin'],           // 店员只能查看
+  'product:update': ['admin'],           // 店员只能查看
   'product:delete': ['admin'],
   'product:view': ['admin', 'staff', 'viewer'],
 
   // 销售记录
-  'sale:create': ['admin', 'staff'],
-  'sale:delete': ['admin'],
+  'sale:create': ['admin', 'staff'],     // 店员可以添加
+  'sale:delete': ['admin'],              // 店员不能删除
   'sale:view': ['admin', 'staff', 'viewer'],
 
   // 库存管理
-  'inventory:in': ['admin', 'staff'],
-  'inventory:out': ['admin', 'staff'],
+  'inventory:in': ['admin'],             // 店员只能查看
+  'inventory:out': ['admin'],            // 店员只能查看
   'inventory:view': ['admin', 'staff', 'viewer'],
 
   // 统计数据
@@ -161,6 +161,9 @@ const PERMISSIONS = {
   // 用户管理
   'user:manage': ['admin']
 };
+
+// 默认管理员 userid 列表
+const DEFAULT_ADMINS = ['ZengLingFeng', 'Kuan-k', 'HanSenBoYi'];
 
 // 权限检查中间件生成器
 function requirePermission(permission) {
@@ -203,6 +206,7 @@ module.exports = {
   requirePermission,
   hasPermission,
   PERMISSIONS,
+  DEFAULT_ADMINS,
   CORP_ID,
   AGENT_ID
 };

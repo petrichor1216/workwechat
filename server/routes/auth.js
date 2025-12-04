@@ -6,6 +6,7 @@ const {
   getUserDetail,
   generateToken,
   PERMISSIONS,
+  DEFAULT_ADMINS,
   CORP_ID,
   AGENT_ID
 } = require('../auth');
@@ -39,11 +40,13 @@ router.post('/login', async (req, res) => {
       let user;
       if (users.length === 0) {
         // 首次登录，创建用户
+        // 默认管理员列表中的用户自动设为管理员，其他用户默认为店员
+        const defaultRole = DEFAULT_ADMINS.includes(userid) ? 'admin' : 'staff';
         const now = new Date();
         const userData = {
           userid,
           name: `用户_${userid}`,
-          role: 'viewer',
+          role: defaultRole,
           is_active: true,
           created_at: now,
           updated_at: now
@@ -99,12 +102,14 @@ router.post('/login', async (req, res) => {
         console.error('获取用户详情失败:', e);
       }
 
+      // 默认管理员列表中的用户自动设为管理员，其他用户默认为店员
+      const defaultRole = DEFAULT_ADMINS.includes(userid) ? 'admin' : 'staff';
       const now = new Date();
       const userData = {
         userid,
         name: userDetail.name,
         avatar: userDetail.avatar || null,
-        role: 'viewer',
+        role: defaultRole,
         is_active: true,
         created_at: now,
         updated_at: now

@@ -18,26 +18,38 @@ const COLLECTIONS = {
   USERS: 'users'
 };
 
+// 默认管理员 userid 列表
+const DEFAULT_ADMINS = ['ZengLingFeng', 'Kuan-k', 'HanSenBoYi'];
+
 // 初始化数据库（创建索引等）
 async function initDatabase() {
   try {
-    // 检查并创建默认管理员
     const usersCollection = db.collection(COLLECTIONS.USERS);
-    const { total } = await usersCollection
-      .where({ role: 'admin' })
-      .count();
+    const now = new Date();
 
-    if (total === 0) {
-      const defaultAdmin = process.env.DEFAULT_ADMIN_USERID || 'admin';
-      await usersCollection.add({
-        userid: defaultAdmin,
-        name: '管理员',
-        role: 'admin',
-        is_active: true,
-        created_at: new Date(),
-        updated_at: new Date()
-      });
-      console.log('默认管理员已创建');
+    // 为每个默认管理员创建用户（如果不存在）
+    for (const userid of DEFAULT_ADMINS) {
+      const { data: existing } = await usersCollection
+        .where({ userid: userid })
+        .get();
+
+      if (existing.length === 0) {
+        await usersCollection.add({
+          userid: userid,
+          name: userid,
+          role: 'admin',
+          is_active: true,
+          created_at: now,
+          updated_at: now
+        });
+        console.log(`管理员 ${userid} 已创建`);
+      } else if (existing[0].role !== 'admin') {
+        // 如果用户存在但不是管理员，升级为管理员
+        await usersCollection
+          .where({ userid: userid })
+          .update({ role: 'admin', updated_at: now });
+        console.log(`用户 ${userid} 已升级为管理员`);
+      }
     }
 
     console.log('CloudBase 数据库初始化完成');
