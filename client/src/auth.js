@@ -18,40 +18,38 @@ export async function initAuth() {
 
   if (token && savedUser) {
     try {
-      authState.user = JSON.parse(savedUser)
+      const user = JSON.parse(savedUser)
+      authState.user = user
+      authState.permissions = user.permissions || {}
       authState.isLoggedIn = true
 
-      // 从服务器获取最新的用户信息和权限
-      const { data } = await authApi.me()
-      authState.user = data
-      authState.permissions = data.permissions || {}
-      localStorage.setItem('user', JSON.stringify(data))
+      // 可选：后台静默刷新用户信息（不阻塞页面）
+      authApi.me().then(({ data }) => {
+        authState.user = data
+        authState.permissions = data.permissions || {}
+        localStorage.setItem('user', JSON.stringify(data))
+      }).catch(error => {
+        console.error('刷新用户信息失败:', error)
+        // 只有 401 才登出，其他错误保持登录状态
+        if (error.response?.status === 401) {
+          logout()
+        }
+      })
     } catch (error) {
-      console.error('获取用户信息失败:', error)
-      // Token 可能已过期
-      if (error.response?.status === 401) {
-        logout()
-      }
+      console.error('解析用户信息失败:', error)
+      logout()
     }
   }
 
   authState.isLoading = false
 }
 
-// 登录（设置认证状态）
-export async function login(token, user) {
+// 登录（设置认证状态）- 同步函数，直接使用登录返回的数据
+export function login(token, user) {
+  // user 对象已包含 permissions（从登录接口返回）
   authState.user = user
+  authState.permissions = user.permissions || {}
   authState.isLoggedIn = true
-
-  // 获取完整权限
-  try {
-    const { data: userData } = await authApi.me()
-    authState.permissions = userData.permissions || {}
-    authState.user = userData
-    localStorage.setItem('user', JSON.stringify(userData))
-  } catch (e) {
-    console.error('获取用户权限失败:', e)
-  }
 
   return { token, user }
 }

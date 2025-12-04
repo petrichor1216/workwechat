@@ -5,6 +5,15 @@ const { generateToken, PERMISSIONS } = require('../auth');
 // 管理员密码
 const ADMIN_PASSWORD = 'march8';
 
+// 计算用户权限
+function calculatePermissions(role) {
+  const permissions = {};
+  for (const [perm, roles] of Object.entries(PERMISSIONS)) {
+    permissions[perm] = roles.includes(role);
+  }
+  return permissions;
+}
+
 // 简化登录 - 管理员（需要密码）
 router.post('/login/admin', async (req, res) => {
   try {
@@ -27,12 +36,15 @@ router.post('/login/admin', async (req, res) => {
     };
 
     const token = generateToken(user);
+    const permissions = calculatePermissions(user.role);
+
     res.json({
       token,
       user: {
         userid: user.userid,
         name: user.name,
-        role: user.role
+        role: user.role,
+        permissions
       }
     });
   } catch (error) {
@@ -53,12 +65,15 @@ router.post('/login/staff', async (req, res) => {
     };
 
     const token = generateToken(user);
+    const permissions = calculatePermissions(user.role);
+
     res.json({
       token,
       user: {
         userid: user.userid,
         name: user.name,
-        role: user.role
+        role: user.role,
+        permissions
       }
     });
   } catch (error) {
