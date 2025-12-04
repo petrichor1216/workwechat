@@ -88,6 +88,36 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    // 用户表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userid VARCHAR(100) NOT NULL UNIQUE,
+        name VARCHAR(100),
+        avatar VARCHAR(500),
+        role ENUM('admin', 'staff', 'viewer') NOT NULL DEFAULT 'viewer',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        last_login_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_userid (userid),
+        INDEX idx_role (role)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 插入默认管理员（如果不存在）
+    const [admins] = await connection.execute(
+      "SELECT COUNT(*) as count FROM users WHERE role = 'admin'"
+    );
+    if (admins[0].count === 0) {
+      // 默认管理员 userid，可通过环境变量配置
+      const defaultAdmin = process.env.DEFAULT_ADMIN_USERID || 'admin';
+      await connection.execute(
+        "INSERT IGNORE INTO users (userid, name, role) VALUES (?, '管理员', 'admin')",
+        [defaultAdmin]
+      );
+    }
+
     console.log('数据库表初始化完成');
   } catch (error) {
     console.error('数据库初始化失败:', error);
@@ -108,10 +138,10 @@ async function logOperation(req, {
   afterData         // 操作后数据
 }) {
   try {
-    // 从请求头获取设备标识（后续可以接入企业微信用户身份）
+    // 优先从 req.user 获取用户信息（已登录用户）
+    const operatorId = req.user?.userid || req.headers['x-operator-id'] || null;
+    const operatorName = req.user?.name || req.headers['x-operator-name'] || null;
     const deviceId = req.headers['x-device-id'] || req.headers['x-forwarded-for'] || req.ip;
-    const operatorId = req.headers['x-operator-id'] || null;
-    const operatorName = req.headers['x-operator-name'] || null;
     const ipAddress = req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress;
     const userAgent = req.headers['user-agent'] || '';
 

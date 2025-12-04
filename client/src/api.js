@@ -5,6 +5,48 @@ const api = axios.create({
   timeout: 10000
 })
 
+// 请求拦截器 - 添加 token
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// 响应拦截器 - 处理认证错误
+api.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      // 登录过期，清除 token 并跳转到登录
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      // 触发重新登录
+      window.dispatchEvent(new CustomEvent('auth:logout'))
+    }
+    return Promise.reject(error)
+  }
+)
+
+// 认证相关
+export const authApi = {
+  config: () => api.get('/auth/config'),
+  login: (code) => api.post('/auth/login', { code }),
+  me: () => api.get('/auth/me'),
+  refresh: () => api.post('/auth/refresh')
+}
+
+// 用户管理相关
+export const userApi = {
+  list: (params) => api.get('/users', { params }),
+  get: (userid) => api.get(`/users/${userid}`),
+  create: (data) => api.post('/users', data),
+  update: (userid, data) => api.put(`/users/${userid}`, data),
+  delete: (userid) => api.delete(`/users/${userid}`),
+  roles: () => api.get('/users/roles/info')
+}
+
 // 商品相关
 export const productApi = {
   list: () => api.get('/products'),

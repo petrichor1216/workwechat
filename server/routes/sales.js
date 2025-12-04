@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { pool, logOperation } = require('../database');
+const { requirePermission } = require('../auth');
 
 // 获取销售记录列表
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('sale:view'), async (req, res) => {
   try {
     const { start_date, end_date, limit = 50, offset = 0 } = req.query;
 
@@ -30,7 +31,7 @@ router.get('/', async (req, res) => {
 });
 
 // 获取单条销售记录
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermission('sale:view'), async (req, res) => {
   try {
     const [sales] = await pool.execute(
       'SELECT * FROM sales WHERE id = ?',
@@ -46,7 +47,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // 新增销售记录
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('sale:create'), async (req, res) => {
   const connection = await pool.getConnection();
   try {
     const { product_id, product_name, quantity, price, cost, is_custom, customer, remark, sale_date } = req.body;
@@ -134,7 +135,7 @@ router.post('/', async (req, res) => {
 });
 
 // 删除销售记录
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('sale:delete'), async (req, res) => {
   const connection = await pool.getConnection();
   try {
     const [sales] = await connection.execute(

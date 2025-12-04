@@ -26,9 +26,9 @@
           </div>
           <div class="list-item-right">
             <div class="stock-count" :class="{ low: item.stock < 5 }">{{ item.stock }}</div>
-            <div class="stock-actions">
-              <button class="action-btn-small" @click="openStockModal(item, 'in')">入库</button>
-              <button class="action-btn-small out" @click="openStockModal(item, 'out')">出库</button>
+            <div class="stock-actions" v-if="canIn || canOut">
+              <button v-if="canIn" class="action-btn-small" @click="openStockModal(item, 'in')">入库</button>
+              <button v-if="canOut" class="action-btn-small out" @click="openStockModal(item, 'out')">出库</button>
             </div>
           </div>
         </div>
@@ -100,6 +100,7 @@
 
 <script>
 import { inventoryApi } from '../api'
+import { hasPermission } from '../auth'
 
 export default {
   name: 'Inventory',
@@ -115,6 +116,14 @@ export default {
         quantity: '',
         remark: ''
       }
+    }
+  },
+  computed: {
+    canIn() {
+      return hasPermission('inventory:in')
+    },
+    canOut() {
+      return hasPermission('inventory:out')
     }
   },
   mounted() {

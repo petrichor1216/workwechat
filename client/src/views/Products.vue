@@ -31,46 +31,46 @@
     </div>
 
     <!-- 添加按钮 -->
-    <button class="fab" @click="showModal = true">+</button>
+    <button v-if="canCreate" class="fab" @click="showAddModal">+</button>
 
     <!-- 添加/编辑弹窗 -->
     <div class="modal-overlay" v-if="showModal" @click.self="closeModal">
       <div class="modal-content">
         <div class="modal-header">
-          <span class="modal-title">{{ editingId ? '编辑商品' : '添加商品' }}</span>
+          <span class="modal-title">{{ editingId ? (viewOnly ? '查看商品' : '编辑商品') : '添加商品' }}</span>
           <span class="modal-close" @click="closeModal">×</span>
         </div>
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label">商品名称 *</label>
-            <input type="text" class="form-input" v-model="form.name" placeholder="请输入商品名称">
+            <input type="text" class="form-input" v-model="form.name" placeholder="请输入商品名称" :disabled="viewOnly">
           </div>
           <div class="grid-2">
             <div class="form-group">
               <label class="form-label">售价</label>
-              <input type="number" class="form-input" v-model.number="form.price" placeholder="0.00" step="0.01">
+              <input type="number" class="form-input" v-model.number="form.price" placeholder="0.00" step="0.01" :disabled="viewOnly">
             </div>
             <div class="form-group">
               <label class="form-label">成本价</label>
-              <input type="number" class="form-input" v-model.number="form.cost" placeholder="0.00" step="0.01">
+              <input type="number" class="form-input" v-model.number="form.cost" placeholder="0.00" step="0.01" :disabled="viewOnly">
             </div>
           </div>
           <div class="form-group" v-if="!form.is_custom">
             <label class="form-label">库存数量</label>
-            <input type="number" class="form-input" v-model.number="form.stock" placeholder="0">
+            <input type="number" class="form-input" v-model.number="form.stock" placeholder="0" :disabled="viewOnly">
           </div>
           <div class="form-group">
             <label class="checkbox-label">
-              <input type="checkbox" v-model="form.is_custom">
+              <input type="checkbox" v-model="form.is_custom" :disabled="viewOnly">
               <span>标记为定制品（不计库存）</span>
             </label>
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-default btn-block" @click="closeModal">取消</button>
-          <button class="btn btn-primary btn-block" @click="saveProduct">保存</button>
+          <button class="btn btn-default btn-block" @click="closeModal">{{ viewOnly ? '关闭' : '取消' }}</button>
+          <button v-if="!viewOnly" class="btn btn-primary btn-block" @click="saveProduct">保存</button>
         </div>
-        <div class="modal-footer" v-if="editingId" style="border-top: none; padding-top: 0;">
+        <div class="modal-footer" v-if="editingId && canDelete" style="border-top: none; padding-top: 0;">
           <button class="btn btn-danger btn-block" @click="deleteProduct">删除商品</button>
         </div>
       </div>
@@ -80,6 +80,7 @@
 
 <script>
 import { productApi } from '../api'
+import { hasPermission } from '../auth'
 
 export default {
   name: 'Products',
@@ -88,6 +89,7 @@ export default {
       products: [],
       showModal: false,
       editingId: null,
+      viewOnly: false,
       form: {
         name: '',
         price: '',
@@ -95,6 +97,17 @@ export default {
         stock: 0,
         is_custom: false
       }
+    }
+  },
+  computed: {
+    canCreate() {
+      return hasPermission('product:create')
+    },
+    canUpdate() {
+      return hasPermission('product:update')
+    },
+    canDelete() {
+      return hasPermission('product:delete')
     }
   },
   mounted() {
@@ -109,8 +122,15 @@ export default {
         console.error('加载商品失败:', error)
       }
     },
+    showAddModal() {
+      this.editingId = null
+      this.viewOnly = false
+      this.form = { name: '', price: '', cost: '', stock: 0, is_custom: false }
+      this.showModal = true
+    },
     editProduct(item) {
       this.editingId = item.id
+      this.viewOnly = !this.canUpdate
       this.form = {
         name: item.name,
         price: item.price,

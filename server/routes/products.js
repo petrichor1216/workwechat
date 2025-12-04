@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { pool, logOperation } = require('../database');
+const { requirePermission } = require('../auth');
 
 // 获取所有商品
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('product:view'), async (req, res) => {
   try {
     const [products] = await pool.execute(
       'SELECT * FROM products ORDER BY updated_at DESC'
@@ -15,7 +16,7 @@ router.get('/', async (req, res) => {
 });
 
 // 获取单个商品
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermission('product:view'), async (req, res) => {
   try {
     const [products] = await pool.execute(
       'SELECT * FROM products WHERE id = ?',
@@ -31,7 +32,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // 新增商品
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('product:create'), async (req, res) => {
   try {
     const { name, price, cost, stock, is_custom } = req.body;
     if (!name) {
@@ -66,7 +67,7 @@ router.post('/', async (req, res) => {
 });
 
 // 更新商品
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePermission('product:update'), async (req, res) => {
   try {
     const { name, price, cost, stock, is_custom } = req.body;
 
@@ -127,7 +128,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // 删除商品
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('product:delete'), async (req, res) => {
   try {
     const [existingProducts] = await pool.execute(
       'SELECT * FROM products WHERE id = ?',

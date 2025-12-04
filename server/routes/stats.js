@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
+const { requirePermission } = require('../auth');
 
 // 获取概览统计
-router.get('/overview', async (req, res) => {
+router.get('/overview', requirePermission('stats:view'), async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -62,7 +63,7 @@ router.get('/overview', async (req, res) => {
 });
 
 // 按日期统计销售数据
-router.get('/daily', async (req, res) => {
+router.get('/daily', requirePermission('stats:view'), async (req, res) => {
   try {
     const { days = 30 } = req.query;
     const startDate = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000)
@@ -88,7 +89,7 @@ router.get('/daily', async (req, res) => {
 });
 
 // 按月统计
-router.get('/monthly', async (req, res) => {
+router.get('/monthly', requirePermission('stats:view'), async (req, res) => {
   try {
     const { months = 12 } = req.query;
     const startDate = new Date();
@@ -115,7 +116,7 @@ router.get('/monthly', async (req, res) => {
 });
 
 // 商品销售排行
-router.get('/ranking', async (req, res) => {
+router.get('/ranking', requirePermission('stats:view'), async (req, res) => {
   try {
     const { start_date, end_date, limit = 10 } = req.query;
 

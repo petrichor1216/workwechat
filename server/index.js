@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { initDatabase, pool } = require('./database');
+const { authMiddleware } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 80;
@@ -13,7 +14,12 @@ app.use(express.json());
 // 信任代理（用于获取真实IP）
 app.set('trust proxy', true);
 
+// 认证中间件（放在 API 路由之前）
+app.use('/api', authMiddleware);
+
 // API 路由
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/sales', require('./routes/sales'));
 app.use('/api/inventory', require('./routes/inventory'));

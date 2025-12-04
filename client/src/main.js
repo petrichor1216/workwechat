@@ -5,12 +5,14 @@ import App from './App.vue'
 // 路由配置
 const routes = [
   { path: '/', redirect: '/dashboard' },
+  { path: '/login', component: () => import('./views/Login.vue'), meta: { title: '登录' } },
   { path: '/dashboard', component: () => import('./views/Dashboard.vue'), meta: { title: '首页' } },
   { path: '/products', component: () => import('./views/Products.vue'), meta: { title: '商品管理' } },
   { path: '/sales', component: () => import('./views/Sales.vue'), meta: { title: '销售记录' } },
   { path: '/inventory', component: () => import('./views/Inventory.vue'), meta: { title: '库存管理' } },
   { path: '/stats', component: () => import('./views/Stats.vue'), meta: { title: '数据统计' } },
-  { path: '/logs', component: () => import('./views/Logs.vue'), meta: { title: '操作日志' } }
+  { path: '/logs', component: () => import('./views/Logs.vue'), meta: { title: '操作日志' } },
+  { path: '/users', component: () => import('./views/Users.vue'), meta: { title: '用户管理' } }
 ]
 
 const router = createRouter({

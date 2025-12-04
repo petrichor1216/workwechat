@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { pool, logOperation } = require('../database');
+const { requirePermission } = require('../auth');
 
 // 获取库存列表（商品及其库存）
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('inventory:view'), async (req, res) => {
   try {
     const [products] = await pool.execute(`
       SELECT id, name, stock, price, cost, is_custom
@@ -18,7 +19,7 @@ router.get('/', async (req, res) => {
 });
 
 // 获取库存日志
-router.get('/logs', async (req, res) => {
+router.get('/logs', requirePermission('inventory:view'), async (req, res) => {
   try {
     const { product_id, type, limit = 50, offset = 0 } = req.query;
 
@@ -50,7 +51,7 @@ router.get('/logs', async (req, res) => {
 });
 
 // 入库操作
-router.post('/in', async (req, res) => {
+router.post('/in', requirePermission('inventory:in'), async (req, res) => {
   const connection = await pool.getConnection();
   try {
     const { product_id, quantity, remark } = req.body;
@@ -127,7 +128,7 @@ router.post('/in', async (req, res) => {
 });
 
 // 手动出库操作（非销售出库）
-router.post('/out', async (req, res) => {
+router.post('/out', requirePermission('inventory:out'), async (req, res) => {
   const connection = await pool.getConnection();
   try {
     const { product_id, quantity, remark } = req.body;

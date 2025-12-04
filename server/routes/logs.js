@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
+const { requirePermission } = require('../auth');
 
 // 获取操作日志列表
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('logs:view'), async (req, res) => {
   try {
     const {
       action,        // 操作类型筛选
@@ -57,7 +58,7 @@ router.get('/', async (req, res) => {
 });
 
 // 获取日志统计
-router.get('/stats', async (req, res) => {
+router.get('/stats', requirePermission('logs:view'), async (req, res) => {
   try {
     // 今日操作数
     const [todayCount] = await pool.execute(`
@@ -93,7 +94,7 @@ router.get('/stats', async (req, res) => {
 });
 
 // 获取单条日志详情
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermission('logs:view'), async (req, res) => {
   try {
     const [logs] = await pool.execute(
       'SELECT * FROM operation_logs WHERE id = ?',

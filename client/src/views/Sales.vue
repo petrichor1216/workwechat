@@ -23,7 +23,7 @@
         <div class="list-item-right">
           <div class="list-item-extra">¥{{ (item.price * item.quantity).toFixed(2) }}</div>
           <div class="list-item-profit">利润 ¥{{ ((item.price - item.cost) * item.quantity).toFixed(2) }}</div>
-          <button class="delete-btn" @click.stop="deleteSale(item)">删除</button>
+          <button v-if="canDelete" class="delete-btn" @click.stop="deleteSale(item)">删除</button>
         </div>
       </div>
     </div>
@@ -34,7 +34,7 @@
     </div>
 
     <!-- 添加按钮 -->
-    <button class="fab" @click="openModal">+</button>
+    <button v-if="canCreate" class="fab" @click="openModal">+</button>
 
     <!-- 添加弹窗 -->
     <div class="modal-overlay" v-if="showModal" @click.self="closeModal">
@@ -124,6 +124,7 @@
 
 <script>
 import { salesApi, productApi } from '../api'
+import { hasPermission } from '../auth'
 
 export default {
   name: 'Sales',
@@ -143,6 +144,14 @@ export default {
         remark: '',
         sale_date: new Date().toISOString().split('T')[0]
       }
+    }
+  },
+  computed: {
+    canCreate() {
+      return hasPermission('sale:create')
+    },
+    canDelete() {
+      return hasPermission('sale:delete')
     }
   },
   mounted() {
