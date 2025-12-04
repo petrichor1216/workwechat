@@ -26,6 +26,11 @@ app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/logs', require('./routes/logs'));
 
+// 企业微信域名验证文件
+app.get('/WW_verify_TPwwZLx540FK1rsM.txt', (req, res) => {
+  res.type('text/plain').send('TPwwZLx540FK1rsM');
+});
+
 // 生产环境提供静态文件
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/dist')));
