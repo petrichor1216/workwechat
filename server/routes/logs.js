@@ -8,7 +8,6 @@ router.get('/', requirePermission('logs:view'), async (req, res) => {
   try {
     const {
       action,
-      target_type,
       start_date,
       end_date,
       limit = 50,
@@ -22,10 +21,6 @@ router.get('/', requirePermission('logs:view'), async (req, res) => {
     if (action) {
       conditions.push('action = ?');
       params.push(action);
-    }
-    if (target_type) {
-      conditions.push('target_type = ?');
-      params.push(target_type);
     }
     if (start_date) {
       conditions.push('DATE(created_at) >= ?');
@@ -71,18 +66,9 @@ router.get('/stats', requirePermission('logs:view'), async (req, res) => {
       GROUP BY action
     `, [weekAgo]);
 
-    // 按目标类型统计（本周）
-    const [byTarget] = await pool.execute(`
-      SELECT target_type, COUNT(*) as count
-      FROM operation_logs
-      WHERE DATE(created_at) >= ?
-      GROUP BY target_type
-    `, [weekAgo]);
-
     res.json({
       today: todayResult[0].count,
-      by_action: byAction,
-      by_target: byTarget
+      by_action: byAction
     });
   } catch (error) {
     console.error('获取日志统计失败:', error);

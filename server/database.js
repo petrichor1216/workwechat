@@ -1,17 +1,23 @@
 const mysql = require('mysql2/promise');
 
-// MySQL 连接池配置
+// TiDB Cloud / MySQL 连接池配置
 const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'localhost',
-  port: parseInt(process.env.MYSQL_PORT) || 3306,
-  user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
+  host: process.env.MYSQL_HOST || 'gateway01.eu-central-1.prod.aws.tidbcloud.com',
+  port: parseInt(process.env.MYSQL_PORT) || 4000,
+  user: process.env.MYSQL_USER || 'w3W3AJWN97UbeYa.root',
+  password: process.env.MYSQL_PASSWORD || 'wSMmDRAHwRwmb2rp',
   database: process.env.MYSQL_DATABASE || 'inventory',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  charset: 'utf8mb4'
+  charset: 'utf8mb4',
+  ssl: {
+    rejectUnauthorized: true
+  }
 });
+
+// 默认管理员列表
+const DEFAULT_ADMINS = ['ZengLingFeng', 'Kuan-k', 'HanSenBoYi'];
 
 // 初始化数据库表
 async function initDatabase() {
@@ -25,65 +31,74 @@ async function initDatabase() {
         price DECIMAL(10, 2) DEFAULT 0,
         cost DECIMAL(10, 2) DEFAULT 0,
         stock INT DEFAULT 0,
-        is_custom TINYINT(1) DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        is_custom BOOLEAN DEFAULT FALSE,
+        alert_threshold INT DEFAULT 10,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建 sales 表
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS sales (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        product_id INT,
-        product_name VARCHAR(255) NOT NULL,
+        product_name VARCHAR(255),
         quantity INT DEFAULT 1,
-        price DECIMAL(10, 2) DEFAULT 0,
+        price DECIMAL(10, 2),
         cost DECIMAL(10, 2) DEFAULT 0,
-        is_custom TINYINT(1) DEFAULT 0,
-        customer VARCHAR(255),
-        remark TEXT,
+        profit DECIMAL(10, 2) DEFAULT 0,
         sale_date DATE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建 inventory_logs 表
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS inventory_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        product_id INT NOT NULL,
+        product_id INT,
         product_name VARCHAR(255),
-        type ENUM('in', 'out') NOT NULL,
-        quantity INT NOT NULL,
-        before_stock INT,
-        after_stock INT,
-        remark TEXT,
-        operator_id VARCHAR(255),
-        operator_name VARCHAR(255),
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        type ENUM('in', 'out'),
+        quantity INT,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // 创建 operation_logs 表
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS operation_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        operator_id VARCHAR(255),
-        operator_name VARCHAR(255),
-        device_id VARCHAR(255),
-        action VARCHAR(50) NOT NULL,
-        target_type VARCHAR(50),
-        target_id INT,
-        target_name VARCHAR(255),
-        content TEXT,
-        before_data JSON,
-        after_data JSON,
-        ip_address VARCHAR(50),
-        user_agent TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        action VARCHAR(50),
+        target VARCHAR(100),
+        detail TEXT,
+        operator VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
+
+    // 创建 users 表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userid VARCHAR(100) UNIQUE,
+        role ENUM('admin', 'staff') DEFAULT 'staff',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 初始化默认管理员
+    for (const userid of DEFAULT_ADMINS) {
+      try {
+        await connection.execute(
+          'INSERT IGNORE INTO users (userid, role) VALUES (?, ?)',
+          [userid, 'admin']
+        );
+      } catch (e) {
+        // 忽略重复插入错误
+      }
+    }
 
     console.log('MySQL 数据库表初始化完成');
   } finally {
@@ -91,7 +106,7 @@ async function initDatabase() {
   }
 }
 
-// 操作日志记录函数
+// 操作日志记录函数（简化版）
 async function logOperation(req, {
   action,
   targetType,
@@ -102,30 +117,14 @@ async function logOperation(req, {
   afterData
 }) {
   try {
-    const operatorId = req.user?.userid || req.headers['x-operator-id'] || null;
-    const operatorName = req.user?.name || req.headers['x-operator-name'] || null;
-    const deviceId = req.headers['x-device-id'] || req.headers['x-forwarded-for'] || req.ip;
-    const ipAddress = req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress;
-    const userAgent = req.headers['user-agent'] || '';
+    const operator = req.user?.name || req.user?.userid || 'system';
+    const target = targetType ? `${targetType}:${targetId || targetName}` : targetName;
+    const detail = content || '';
 
     await pool.execute(`
-      INSERT INTO operation_logs
-      (operator_id, operator_name, device_id, action, target_type, target_id, target_name, content, before_data, after_data, ip_address, user_agent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      operatorId,
-      operatorName,
-      deviceId,
-      action,
-      targetType,
-      targetId || null,
-      targetName || null,
-      content,
-      beforeData ? JSON.stringify(beforeData) : null,
-      afterData ? JSON.stringify(afterData) : null,
-      ipAddress,
-      userAgent
-    ]);
+      INSERT INTO operation_logs (action, target, detail, operator)
+      VALUES (?, ?, ?, ?)
+    `, [action, target, detail, operator]);
   } catch (error) {
     console.error('记录操作日志失败:', error);
   }
@@ -134,5 +133,6 @@ async function logOperation(req, {
 module.exports = {
   pool,
   initDatabase,
-  logOperation
+  logOperation,
+  DEFAULT_ADMINS
 };

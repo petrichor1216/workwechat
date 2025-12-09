@@ -53,7 +53,7 @@ router.post('/in', requirePermission('inventory:in'), async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const { product_id, quantity, remark } = req.body;
+    const { product_id, quantity, note } = req.body;
 
     if (!product_id) {
       return res.status(400).json({ error: '请选择商品' });
@@ -73,8 +73,7 @@ router.post('/in', requirePermission('inventory:in'), async (req, res) => {
     }
 
     const product = products[0];
-    const oldStock = product.stock;
-    const newStock = oldStock + quantity;
+    const newStock = product.stock + quantity;
 
     // 更新库存
     await connection.execute(
@@ -84,8 +83,8 @@ router.post('/in', requirePermission('inventory:in'), async (req, res) => {
 
     // 记录库存日志
     const [result] = await connection.execute(
-      'INSERT INTO inventory_logs (product_id, product_name, type, quantity, before_stock, after_stock, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [product_id, product.name, 'in', quantity, oldStock, newStock, remark || '手动入库', req.user?.userid, req.user?.name]
+      'INSERT INTO inventory_logs (product_id, product_name, type, quantity, note) VALUES (?, ?, ?, ?, ?)',
+      [product_id, product.name, 'in', quantity, note || '手动入库']
     );
 
     await connection.commit();
@@ -101,9 +100,7 @@ router.post('/in', requirePermission('inventory:in'), async (req, res) => {
       targetType: 'inventory',
       targetId: result.insertId,
       targetName: product.name,
-      content: `商品入库: ${product.name}, 数量: +${quantity}, 库存: ${oldStock} → ${newStock}`,
-      beforeData: { stock: oldStock },
-      afterData: { stock: newStock, quantity }
+      content: `商品入库: ${product.name}, 数量: +${quantity}`
     });
 
     res.status(201).json({
@@ -124,7 +121,7 @@ router.post('/out', requirePermission('inventory:out'), async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const { product_id, quantity, remark } = req.body;
+    const { product_id, quantity, note } = req.body;
 
     if (!product_id) {
       return res.status(400).json({ error: '请选择商品' });
@@ -150,8 +147,7 @@ router.post('/out', requirePermission('inventory:out'), async (req, res) => {
       return res.status(400).json({ error: `库存不足，当前库存：${product.stock}` });
     }
 
-    const oldStock = product.stock;
-    const newStock = oldStock - quantity;
+    const newStock = product.stock - quantity;
 
     // 更新库存
     await connection.execute(
@@ -161,8 +157,8 @@ router.post('/out', requirePermission('inventory:out'), async (req, res) => {
 
     // 记录库存日志
     const [result] = await connection.execute(
-      'INSERT INTO inventory_logs (product_id, product_name, type, quantity, before_stock, after_stock, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [product_id, product.name, 'out', quantity, oldStock, newStock, remark || '手动出库', req.user?.userid, req.user?.name]
+      'INSERT INTO inventory_logs (product_id, product_name, type, quantity, note) VALUES (?, ?, ?, ?, ?)',
+      [product_id, product.name, 'out', quantity, note || '手动出库']
     );
 
     await connection.commit();
@@ -178,9 +174,7 @@ router.post('/out', requirePermission('inventory:out'), async (req, res) => {
       targetType: 'inventory',
       targetId: result.insertId,
       targetName: product.name,
-      content: `商品出库: ${product.name}, 数量: -${quantity}, 库存: ${oldStock} → ${newStock}`,
-      beforeData: { stock: oldStock },
-      afterData: { stock: newStock, quantity }
+      content: `商品出库: ${product.name}, 数量: -${quantity}`
     });
 
     res.status(201).json({

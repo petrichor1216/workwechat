@@ -15,7 +15,7 @@ router.get('/overview', requirePermission('stats:view'), async (req, res) => {
       SELECT
         COALESCE(SUM(price * quantity), 0) as revenue,
         COALESCE(SUM(cost * quantity), 0) as cost,
-        COALESCE(SUM((price - cost) * quantity), 0) as profit,
+        COALESCE(SUM(profit), 0) as profit,
         COUNT(*) as order_count
       FROM sales WHERE sale_date = ?
     `, [today]);
@@ -25,7 +25,7 @@ router.get('/overview', requirePermission('stats:view'), async (req, res) => {
       SELECT
         COALESCE(SUM(price * quantity), 0) as revenue,
         COALESCE(SUM(cost * quantity), 0) as cost,
-        COALESCE(SUM((price - cost) * quantity), 0) as profit,
+        COALESCE(SUM(profit), 0) as profit,
         COUNT(*) as order_count
       FROM sales WHERE sale_date >= ?
     `, [weekAgo]);
@@ -35,7 +35,7 @@ router.get('/overview', requirePermission('stats:view'), async (req, res) => {
       SELECT
         COALESCE(SUM(price * quantity), 0) as revenue,
         COALESCE(SUM(cost * quantity), 0) as cost,
-        COALESCE(SUM((price - cost) * quantity), 0) as profit,
+        COALESCE(SUM(profit), 0) as profit,
         COUNT(*) as order_count
       FROM sales WHERE sale_date >= ?
     `, [monthStart]);
@@ -44,7 +44,7 @@ router.get('/overview', requirePermission('stats:view'), async (req, res) => {
     const [productResult] = await pool.execute(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN stock < 5 AND is_custom = 0 THEN 1 ELSE 0 END) as low_stock
+        SUM(CASE WHEN stock < alert_threshold AND is_custom = 0 THEN 1 ELSE 0 END) as low_stock
       FROM products
     `);
 
@@ -71,7 +71,7 @@ router.get('/daily', requirePermission('stats:view'), async (req, res) => {
         sale_date as date,
         SUM(price * quantity) as revenue,
         SUM(cost * quantity) as cost,
-        SUM((price - cost) * quantity) as profit,
+        SUM(profit) as profit,
         COUNT(*) as order_count
       FROM sales
       WHERE sale_date >= ?
@@ -98,7 +98,7 @@ router.get('/monthly', requirePermission('stats:view'), async (req, res) => {
         DATE_FORMAT(sale_date, '%Y-%m') as month,
         SUM(price * quantity) as revenue,
         SUM(cost * quantity) as cost,
-        SUM((price - cost) * quantity) as profit,
+        SUM(profit) as profit,
         COUNT(*) as order_count
       FROM sales
       WHERE sale_date >= ?
@@ -122,7 +122,7 @@ router.get('/ranking', requirePermission('stats:view'), async (req, res) => {
         product_name,
         SUM(quantity) as total_quantity,
         SUM(price * quantity) as total_revenue,
-        SUM((price - cost) * quantity) as total_profit
+        SUM(profit) as total_profit
       FROM sales
     `;
     const params = [];

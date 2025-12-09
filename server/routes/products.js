@@ -36,14 +36,14 @@ router.get('/:id', requirePermission('product:view'), async (req, res) => {
 // 新增商品
 router.post('/', requirePermission('product:create'), async (req, res) => {
   try {
-    const { name, price, cost, stock, is_custom } = req.body;
+    const { name, price, cost, stock, is_custom, alert_threshold } = req.body;
     if (!name) {
       return res.status(400).json({ error: '商品名称不能为空' });
     }
 
     const [result] = await pool.execute(
-      'INSERT INTO products (name, price, cost, stock, is_custom) VALUES (?, ?, ?, ?, ?)',
-      [name, price || 0, cost || 0, stock || 0, is_custom ? 1 : 0]
+      'INSERT INTO products (name, price, cost, stock, is_custom, alert_threshold) VALUES (?, ?, ?, ?, ?, ?)',
+      [name, price || 0, cost || 0, stock || 0, is_custom ? 1 : 0, alert_threshold || 10]
     );
 
     const [products] = await pool.execute(
@@ -59,8 +59,7 @@ router.post('/', requirePermission('product:create'), async (req, res) => {
       targetType: 'product',
       targetId: product.id,
       targetName: product.name,
-      content: `添加商品: ${product.name}, 售价: ¥${product.price}, 成本: ¥${product.cost}, 库存: ${product.stock}`,
-      afterData: product
+      content: `添加商品: ${product.name}, 售价: ¥${product.price}, 成本: ¥${product.cost}, 库存: ${product.stock}`
     });
 
     res.status(201).json(product);
@@ -72,7 +71,7 @@ router.post('/', requirePermission('product:create'), async (req, res) => {
 // 更新商品
 router.put('/:id', requirePermission('product:update'), async (req, res) => {
   try {
-    const { name, price, cost, stock, is_custom } = req.body;
+    const { name, price, cost, stock, is_custom, alert_threshold } = req.body;
     const id = req.params.id;
 
     const [existing] = await pool.execute(
@@ -87,13 +86,14 @@ router.put('/:id', requirePermission('product:update'), async (req, res) => {
     const oldProduct = existing[0];
 
     await pool.execute(
-      'UPDATE products SET name = ?, price = ?, cost = ?, stock = ?, is_custom = ? WHERE id = ?',
+      'UPDATE products SET name = ?, price = ?, cost = ?, stock = ?, is_custom = ?, alert_threshold = ? WHERE id = ?',
       [
         name || oldProduct.name,
         price !== undefined ? price : oldProduct.price,
         cost !== undefined ? cost : oldProduct.cost,
         stock !== undefined ? stock : oldProduct.stock,
         is_custom !== undefined ? (is_custom ? 1 : 0) : oldProduct.is_custom,
+        alert_threshold !== undefined ? alert_threshold : oldProduct.alert_threshold,
         id
       ]
     );
@@ -105,22 +105,13 @@ router.put('/:id', requirePermission('product:update'), async (req, res) => {
 
     const product = products[0];
 
-    // 生成变更内容描述
-    const changes = [];
-    if (name && name !== oldProduct.name) changes.push(`名称: ${oldProduct.name} → ${name}`);
-    if (price !== undefined && price !== parseFloat(oldProduct.price)) changes.push(`售价: ¥${oldProduct.price} → ¥${price}`);
-    if (cost !== undefined && cost !== parseFloat(oldProduct.cost)) changes.push(`成本: ¥${oldProduct.cost} → ¥${cost}`);
-    if (stock !== undefined && stock !== oldProduct.stock) changes.push(`库存: ${oldProduct.stock} → ${stock}`);
-
     // 记录操作日志
     await logOperation(req, {
       action: 'update',
       targetType: 'product',
       targetId: product.id,
       targetName: product.name,
-      content: `修改商品: ${product.name}${changes.length > 0 ? ' - ' + changes.join(', ') : ''}`,
-      beforeData: oldProduct,
-      afterData: product
+      content: `修改商品: ${product.name}`
     });
 
     res.json(product);
@@ -153,8 +144,7 @@ router.delete('/:id', requirePermission('product:delete'), async (req, res) => {
       targetType: 'product',
       targetId: product.id,
       targetName: product.name,
-      content: `删除商品: ${product.name}, 售价: ¥${product.price}, 成本: ¥${product.cost}, 库存: ${product.stock}`,
-      beforeData: product
+      content: `删除商品: ${product.name}`
     });
 
     res.json({ message: '删除成功' });
