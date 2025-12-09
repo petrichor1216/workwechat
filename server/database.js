@@ -2,7 +2,7 @@ const cloudbase = require('@cloudbase/node-sdk');
 
 // 初始化 CloudBase
 const app = cloudbase.init({
-  env: process.env.ENV_ID || process.env.CBR_ENV_ID
+  env: process.env.TCB_ENV_ID || process.env.ENV_ID || process.env.CBR_ENV_ID || 'workwechat'
 });
 
 // 获取数据库引用
