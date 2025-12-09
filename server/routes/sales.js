@@ -1,84 +1,53 @@
 const express = require('express');
 const router = express.Router();
-const { db, _, COLLECTIONS, logOperation, generateId } = require('../database');
+const { pool, logOperation } = require('../database');
 const { requirePermission } = require('../auth');
-
-const salesCollection = db.collection(COLLECTIONS.SALES);
-const productsCollection = db.collection(COLLECTIONS.PRODUCTS);
-const inventoryLogsCollection = db.collection(COLLECTIONS.INVENTORY_LOGS);
 
 // 获取销售记录列表
 router.get('/', requirePermission('sale:view'), async (req, res) => {
   try {
     const { start_date, end_date, limit = 50, offset = 0 } = req.query;
 
-    let query = salesCollection.orderBy('sale_date', 'desc').orderBy('created_at', 'desc');
+    let sql = 'SELECT * FROM sales';
+    const params = [];
+    const conditions = [];
 
-    // 日期筛选
-    if (start_date && end_date) {
-      query = query.where({
-        sale_date: _.gte(start_date).and(_.lte(end_date))
-      });
-    } else if (start_date) {
-      query = query.where({ sale_date: _.gte(start_date) });
-    } else if (end_date) {
-      query = query.where({ sale_date: _.lte(end_date) });
+    if (start_date) {
+      conditions.push('sale_date >= ?');
+      params.push(start_date);
+    }
+    if (end_date) {
+      conditions.push('sale_date <= ?');
+      params.push(end_date);
     }
 
-    const { data: sales } = await query
-      .skip(parseInt(offset))
-      .limit(parseInt(limit))
-      .get();
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
 
-    // 转换格式
-    const result = sales.map(s => ({
-      id: s.id,
-      _id: s._id,
-      product_id: s.product_id,
-      product_name: s.product_name,
-      quantity: s.quantity,
-      price: s.price,
-      cost: s.cost,
-      is_custom: s.is_custom ? 1 : 0,
-      customer: s.customer,
-      remark: s.remark,
-      sale_date: s.sale_date,
-      created_at: s.created_at
-    }));
+    sql += ' ORDER BY sale_date DESC, created_at DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), parseInt(offset));
 
-    res.json(result);
+    const [sales] = await pool.execute(sql, params);
+    res.json(sales);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// 获取单条销售记录
+// 获取单个销售记录
 router.get('/:id', requirePermission('sale:view'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { data: sales } = await salesCollection
-      .where({ id: id })
-      .get();
+    const [sales] = await pool.execute(
+      'SELECT * FROM sales WHERE id = ?',
+      [req.params.id]
+    );
 
     if (sales.length === 0) {
-      return res.status(404).json({ error: '记录不存在' });
+      return res.status(404).json({ error: '销售记录不存在' });
     }
 
-    const s = sales[0];
-    res.json({
-      id: s.id,
-      _id: s._id,
-      product_id: s.product_id,
-      product_name: s.product_name,
-      quantity: s.quantity,
-      price: s.price,
-      cost: s.cost,
-      is_custom: s.is_custom ? 1 : 0,
-      customer: s.customer,
-      remark: s.remark,
-      sale_date: s.sale_date,
-      created_at: s.created_at
-    });
+    res.json(sales[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -86,7 +55,10 @@ router.get('/:id', requirePermission('sale:view'), async (req, res) => {
 
 // 新增销售记录
 router.post('/', requirePermission('sale:create'), async (req, res) => {
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
+
     const { product_id, product_name, quantity, price, cost, is_custom, customer, remark, sale_date } = req.body;
 
     if (!product_name) {
@@ -97,60 +69,49 @@ router.post('/', requirePermission('sale:create'), async (req, res) => {
     }
 
     const saleDate = sale_date || new Date().toISOString().split('T')[0];
-    const saleId = await generateId(COLLECTIONS.SALES);
-    const now = new Date();
 
-    const saleData = {
-      id: saleId,
-      product_id: product_id ? parseInt(product_id) : null,
-      product_name,
-      quantity,
-      price: price || 0,
-      cost: cost || 0,
-      is_custom: !!is_custom,
-      customer: customer || null,
-      remark: remark || null,
-      sale_date: saleDate,
-      created_at: now
-    };
-
-    await salesCollection.add(saleData);
-
-    // 如果是非定制品且关联了商品，扣减库存
-    if (!is_custom && product_id) {
-      const { data: products } = await productsCollection
-        .where({ id: parseInt(product_id) })
-        .get();
+    // 如果有关联商品且不是定制品，扣减库存
+    if (product_id && !is_custom) {
+      const [products] = await connection.execute(
+        'SELECT * FROM products WHERE id = ?',
+        [product_id]
+      );
 
       if (products.length > 0) {
         const product = products[0];
-        const newStock = Math.max(0, product.stock - quantity);
+        const newStock = product.stock - quantity;
 
-        await productsCollection
-          .where({ id: parseInt(product_id) })
-          .update({
-            stock: newStock,
-            updated_at: now
-          });
+        if (newStock < 0) {
+          await connection.rollback();
+          return res.status(400).json({ error: '库存不足' });
+        }
 
-        // 记录出库日志
-        const logId = await generateId(COLLECTIONS.INVENTORY_LOGS);
-        await inventoryLogsCollection.add({
-          id: logId,
-          product_id: parseInt(product_id),
-          product_name: product.name,
-          type: 'out',
-          quantity,
-          remark: `销售出库 - 订单#${saleId}`,
-          created_at: now
-        });
+        await connection.execute(
+          'UPDATE products SET stock = ? WHERE id = ?',
+          [newStock, product_id]
+        );
+
+        // 记录库存变动
+        await connection.execute(
+          'INSERT INTO inventory_logs (product_id, product_name, type, quantity, before_stock, after_stock, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [product_id, product.name, 'out', quantity, product.stock, newStock, '销售出库', req.user?.userid, req.user?.name]
+        );
       }
     }
 
-    const sale = {
-      ...saleData,
-      is_custom: saleData.is_custom ? 1 : 0
-    };
+    const [result] = await connection.execute(
+      'INSERT INTO sales (product_id, product_name, quantity, price, cost, is_custom, customer, remark, sale_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [product_id || null, product_name, quantity, price || 0, cost || 0, is_custom ? 1 : 0, customer || null, remark || null, saleDate]
+    );
+
+    await connection.commit();
+
+    const [sales] = await pool.execute(
+      'SELECT * FROM sales WHERE id = ?',
+      [result.insertId]
+    );
+
+    const sale = sales[0];
 
     // 记录操作日志
     await logOperation(req, {
@@ -158,62 +119,64 @@ router.post('/', requirePermission('sale:create'), async (req, res) => {
       targetType: 'sale',
       targetId: sale.id,
       targetName: sale.product_name,
-      content: `添加销售记录: ${sale.product_name} x${sale.quantity}, 金额: ¥${(sale.price * sale.quantity).toFixed(2)}, 客户: ${sale.customer || '未填写'}`,
+      content: `添加销售记录: ${sale.product_name} x${sale.quantity}, 金额: ¥${(sale.price * sale.quantity).toFixed(2)}`,
       afterData: sale
     });
 
     res.status(201).json(sale);
   } catch (error) {
+    await connection.rollback();
     res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
   }
 });
 
 // 删除销售记录
 router.delete('/:id', requirePermission('sale:delete'), async (req, res) => {
+  const connection = await pool.getConnection();
   try {
-    const id = parseInt(req.params.id);
-    const { data: sales } = await salesCollection
-      .where({ id: id })
-      .get();
+    await connection.beginTransaction();
 
-    if (sales.length === 0) {
-      return res.status(404).json({ error: '记录不存在' });
+    const [existing] = await connection.execute(
+      'SELECT * FROM sales WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (existing.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: '销售记录不存在' });
     }
 
-    const sale = sales[0];
-    const now = new Date();
+    const sale = existing[0];
 
-    // 如果非定制品，恢复库存
-    if (!sale.is_custom && sale.product_id) {
-      const { data: products } = await productsCollection
-        .where({ id: sale.product_id })
-        .get();
+    // 如果有关联商品且不是定制品，恢复库存
+    if (sale.product_id && !sale.is_custom) {
+      const [products] = await connection.execute(
+        'SELECT * FROM products WHERE id = ?',
+        [sale.product_id]
+      );
 
       if (products.length > 0) {
         const product = products[0];
+        const newStock = product.stock + sale.quantity;
 
-        await productsCollection
-          .where({ id: sale.product_id })
-          .update({
-            stock: _.inc(sale.quantity),
-            updated_at: now
-          });
+        await connection.execute(
+          'UPDATE products SET stock = ? WHERE id = ?',
+          [newStock, sale.product_id]
+        );
 
-        // 记录入库日志（撤销出库）
-        const logId = await generateId(COLLECTIONS.INVENTORY_LOGS);
-        await inventoryLogsCollection.add({
-          id: logId,
-          product_id: sale.product_id,
-          product_name: product.name,
-          type: 'in',
-          quantity: sale.quantity,
-          remark: `撤销销售 - 订单#${sale.id}`,
-          created_at: now
-        });
+        // 记录库存变动
+        await connection.execute(
+          'INSERT INTO inventory_logs (product_id, product_name, type, quantity, before_stock, after_stock, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [sale.product_id, product.name, 'in', sale.quantity, product.stock, newStock, '删除销售记录恢复库存', req.user?.userid, req.user?.name]
+        );
       }
     }
 
-    await salesCollection.where({ id: id }).remove();
+    await connection.execute('DELETE FROM sales WHERE id = ?', [req.params.id]);
+
+    await connection.commit();
 
     // 记录操作日志
     await logOperation(req, {
@@ -221,13 +184,16 @@ router.delete('/:id', requirePermission('sale:delete'), async (req, res) => {
       targetType: 'sale',
       targetId: sale.id,
       targetName: sale.product_name,
-      content: `删除销售记录: ${sale.product_name} x${sale.quantity}, 金额: ¥${(sale.price * sale.quantity).toFixed(2)}, 日期: ${sale.sale_date}`,
-      beforeData: { ...sale, is_custom: sale.is_custom ? 1 : 0 }
+      content: `删除销售记录: ${sale.product_name} x${sale.quantity}, 金额: ¥${(sale.price * sale.quantity).toFixed(2)}`,
+      beforeData: sale
     });
 
     res.json({ message: '删除成功' });
   } catch (error) {
+    await connection.rollback();
     res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
   }
 });
 

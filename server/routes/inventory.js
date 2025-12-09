@@ -1,31 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { db, _, COLLECTIONS, logOperation, generateId } = require('../database');
+const { pool, logOperation } = require('../database');
 const { requirePermission } = require('../auth');
-
-const productsCollection = db.collection(COLLECTIONS.PRODUCTS);
-const inventoryLogsCollection = db.collection(COLLECTIONS.INVENTORY_LOGS);
 
 // 获取库存列表（商品及其库存）
 router.get('/', requirePermission('inventory:view'), async (req, res) => {
   try {
-    const { data: products } = await productsCollection
-      .where({ is_custom: false })
-      .orderBy('name', 'asc')
-      .limit(1000)
-      .get();
-
-    const result = products.map(p => ({
-      id: p.id,
-      _id: p._id,
-      name: p.name,
-      stock: p.stock,
-      price: p.price,
-      cost: p.cost,
-      is_custom: p.is_custom ? 1 : 0
-    }));
-
-    res.json(result);
+    const [products] = await pool.execute(
+      'SELECT * FROM products WHERE is_custom = 0 ORDER BY name ASC LIMIT 1000'
+    );
+    res.json(products);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -36,20 +20,27 @@ router.get('/logs', requirePermission('inventory:view'), async (req, res) => {
   try {
     const { product_id, type, limit = 50, offset = 0 } = req.query;
 
-    let query = inventoryLogsCollection.orderBy('created_at', 'desc');
+    let sql = 'SELECT * FROM inventory_logs';
+    const params = [];
+    const conditions = [];
 
     if (product_id) {
-      query = query.where({ product_id: parseInt(product_id) });
+      conditions.push('product_id = ?');
+      params.push(product_id);
     }
     if (type) {
-      query = query.where({ type: type });
+      conditions.push('type = ?');
+      params.push(type);
     }
 
-    const { data: logs } = await query
-      .skip(parseInt(offset))
-      .limit(parseInt(limit))
-      .get();
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
 
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), parseInt(offset));
+
+    const [logs] = await pool.execute(sql, params);
     res.json(logs);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -58,7 +49,10 @@ router.get('/logs', requirePermission('inventory:view'), async (req, res) => {
 
 // 入库操作
 router.post('/in', requirePermission('inventory:in'), async (req, res) => {
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
+
     const { product_id, quantity, remark } = req.body;
 
     if (!product_id) {
@@ -68,68 +62,68 @@ router.post('/in', requirePermission('inventory:in'), async (req, res) => {
       return res.status(400).json({ error: '数量必须大于0' });
     }
 
-    const { data: products } = await productsCollection
-      .where({ id: parseInt(product_id) })
-      .get();
+    const [products] = await connection.execute(
+      'SELECT * FROM products WHERE id = ?',
+      [product_id]
+    );
 
     if (products.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: '商品不存在' });
     }
 
     const product = products[0];
     const oldStock = product.stock;
     const newStock = oldStock + quantity;
-    const now = new Date();
 
     // 更新库存
-    await productsCollection
-      .where({ id: parseInt(product_id) })
-      .update({
-        stock: newStock,
-        updated_at: now
-      });
+    await connection.execute(
+      'UPDATE products SET stock = ? WHERE id = ?',
+      [newStock, product_id]
+    );
 
     // 记录库存日志
-    const logId = await generateId(COLLECTIONS.INVENTORY_LOGS);
-    const logData = {
-      id: logId,
-      product_id: parseInt(product_id),
-      product_name: product.name,
-      type: 'in',
-      quantity,
-      remark: remark || '手动入库',
-      created_at: now
-    };
+    const [result] = await connection.execute(
+      'INSERT INTO inventory_logs (product_id, product_name, type, quantity, before_stock, after_stock, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [product_id, product.name, 'in', quantity, oldStock, newStock, remark || '手动入库', req.user?.userid, req.user?.name]
+    );
 
-    await inventoryLogsCollection.add(logData);
+    await connection.commit();
+
+    const [logs] = await pool.execute(
+      'SELECT * FROM inventory_logs WHERE id = ?',
+      [result.insertId]
+    );
 
     // 记录操作日志
     await logOperation(req, {
       action: 'create',
       targetType: 'inventory',
-      targetId: logId,
+      targetId: result.insertId,
       targetName: product.name,
-      content: `商品入库: ${product.name}, 数量: +${quantity}, 库存: ${oldStock} → ${newStock}, 备注: ${remark || '手动入库'}`,
+      content: `商品入库: ${product.name}, 数量: +${quantity}, 库存: ${oldStock} → ${newStock}`,
       beforeData: { stock: oldStock },
       afterData: { stock: newStock, quantity }
     });
 
     res.status(201).json({
-      log: logData,
-      product: {
-        ...product,
-        stock: newStock,
-        is_custom: product.is_custom ? 1 : 0
-      }
+      log: logs[0],
+      product: { ...product, stock: newStock }
     });
   } catch (error) {
+    await connection.rollback();
     res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
   }
 });
 
 // 手动出库操作（非销售出库）
 router.post('/out', requirePermission('inventory:out'), async (req, res) => {
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
+
     const { product_id, quantity, remark } = req.body;
 
     if (!product_id) {
@@ -139,67 +133,65 @@ router.post('/out', requirePermission('inventory:out'), async (req, res) => {
       return res.status(400).json({ error: '数量必须大于0' });
     }
 
-    const { data: products } = await productsCollection
-      .where({ id: parseInt(product_id) })
-      .get();
+    const [products] = await connection.execute(
+      'SELECT * FROM products WHERE id = ?',
+      [product_id]
+    );
 
     if (products.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: '商品不存在' });
     }
 
     const product = products[0];
 
     if (product.stock < quantity) {
+      await connection.rollback();
       return res.status(400).json({ error: `库存不足，当前库存：${product.stock}` });
     }
 
     const oldStock = product.stock;
     const newStock = oldStock - quantity;
-    const now = new Date();
 
     // 更新库存
-    await productsCollection
-      .where({ id: parseInt(product_id) })
-      .update({
-        stock: newStock,
-        updated_at: now
-      });
+    await connection.execute(
+      'UPDATE products SET stock = ? WHERE id = ?',
+      [newStock, product_id]
+    );
 
     // 记录库存日志
-    const logId = await generateId(COLLECTIONS.INVENTORY_LOGS);
-    const logData = {
-      id: logId,
-      product_id: parseInt(product_id),
-      product_name: product.name,
-      type: 'out',
-      quantity,
-      remark: remark || '手动出库',
-      created_at: now
-    };
+    const [result] = await connection.execute(
+      'INSERT INTO inventory_logs (product_id, product_name, type, quantity, before_stock, after_stock, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [product_id, product.name, 'out', quantity, oldStock, newStock, remark || '手动出库', req.user?.userid, req.user?.name]
+    );
 
-    await inventoryLogsCollection.add(logData);
+    await connection.commit();
+
+    const [logs] = await pool.execute(
+      'SELECT * FROM inventory_logs WHERE id = ?',
+      [result.insertId]
+    );
 
     // 记录操作日志
     await logOperation(req, {
       action: 'create',
       targetType: 'inventory',
-      targetId: logId,
+      targetId: result.insertId,
       targetName: product.name,
-      content: `商品出库: ${product.name}, 数量: -${quantity}, 库存: ${oldStock} → ${newStock}, 备注: ${remark || '手动出库'}`,
+      content: `商品出库: ${product.name}, 数量: -${quantity}, 库存: ${oldStock} → ${newStock}`,
       beforeData: { stock: oldStock },
       afterData: { stock: newStock, quantity }
     });
 
     res.status(201).json({
-      log: logData,
-      product: {
-        ...product,
-        stock: newStock,
-        is_custom: product.is_custom ? 1 : 0
-      }
+      log: logs[0],
+      product: { ...product, stock: newStock }
     });
   } catch (error) {
+    await connection.rollback();
     res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
   }
 });
 

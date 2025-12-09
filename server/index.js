@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { initDatabase, db, COLLECTIONS } = require('./database');
+const { initDatabase, pool } = require('./database');
 const { authMiddleware } = require('./auth');
 
 const app = express();
@@ -56,8 +56,8 @@ app.get('/health', (req, res) => {
 // 详细健康检查（调试用）
 app.get('/health/detail', async (req, res) => {
   try {
-    await db.collection(COLLECTIONS.USERS).count();
-    res.status(200).json({ status: 'ok', database: 'cloudbase', dbReady });
+    await pool.execute('SELECT 1');
+    res.status(200).json({ status: 'ok', database: 'mysql', dbReady });
   } catch (error) {
     res.status(503).json({ status: 'error', database: 'disconnected', error: error.message });
   }
@@ -71,7 +71,7 @@ app.listen(PORT, '0.0.0.0', () => {
   initDatabase()
     .then(() => {
       dbReady = true;
-      console.log('CloudBase 数据库连接成功');
+      console.log('MySQL 数据库连接成功');
     })
     .catch((error) => {
       dbError = error;
