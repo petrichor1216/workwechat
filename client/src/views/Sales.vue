@@ -21,8 +21,8 @@
           </div>
         </div>
         <div class="list-item-right">
-          <div class="list-item-extra">¥{{ (item.price * item.quantity).toFixed(2) }}</div>
-          <div class="list-item-profit">利润 ¥{{ ((item.price - item.cost) * item.quantity).toFixed(2) }}</div>
+          <div class="list-item-extra">¥{{ formatMoney(item.price * item.quantity) }}</div>
+          <div class="list-item-profit">利润 ¥{{ formatMoney((item.price - item.cost) * item.quantity) }}</div>
           <button v-if="canDelete" class="delete-btn" @click.stop="deleteSale(item)">删除</button>
         </div>
       </div>
@@ -105,11 +105,11 @@
           <div class="preview-card" v-if="form.quantity > 0 && form.price > 0">
             <div class="preview-row">
               <span>销售金额</span>
-              <span class="money">{{ (form.price * form.quantity).toFixed(2) }}</span>
+              <span class="money">{{ formatMoney(form.price * form.quantity) }}</span>
             </div>
             <div class="preview-row">
               <span>预计利润</span>
-              <span class="profit">¥{{ ((form.price - (form.cost || 0)) * form.quantity).toFixed(2) }}</span>
+              <span class="profit">¥{{ formatMoney((form.price - (form.cost || 0)) * form.quantity) }}</span>
             </div>
           </div>
         </div>
@@ -237,6 +237,10 @@ export default {
         remark: '',
         sale_date: new Date().toISOString().split('T')[0]
       }
+    },
+    formatMoney(value) {
+      const num = parseFloat(value) || 0
+      return num.toFixed(2)
     }
   }
 }

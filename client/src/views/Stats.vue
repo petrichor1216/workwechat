@@ -19,11 +19,11 @@
       <h3 class="card-title">数据汇总</h3>
       <div class="grid-2">
         <div class="summary-item">
-          <div class="summary-value money">{{ totalRevenue.toFixed(2) }}</div>
+          <div class="summary-value money">{{ formatMoney(totalRevenue) }}</div>
           <div class="summary-label">总销售额</div>
         </div>
         <div class="summary-item">
-          <div class="summary-value profit">¥{{ totalProfit.toFixed(2) }}</div>
+          <div class="summary-value profit">¥{{ formatMoney(totalProfit) }}</div>
           <div class="summary-label">总利润</div>
         </div>
         <div class="summary-item">
@@ -54,11 +54,11 @@
           <div class="ranking-content">
             <div class="ranking-name">{{ item.product_name }}</div>
             <div class="ranking-stats">
-              销量: {{ item.total_quantity }} | 销售额: ¥{{ item.total_revenue.toFixed(2) }}
+              销量: {{ item.total_quantity }} | 销售额: ¥{{ formatMoney(item.total_revenue) }}
             </div>
           </div>
           <div class="ranking-profit">
-            利润 ¥{{ item.total_profit.toFixed(2) }}
+            利润 ¥{{ formatMoney(item.total_profit) }}
           </div>
         </div>
       </div>
@@ -94,8 +94,8 @@ export default {
       return this.dailyData.reduce((sum, d) => sum + d.order_count, 0)
     },
     profitRate() {
-      if (this.totalRevenue === 0) return 0
-      return ((this.totalProfit / this.totalRevenue) * 100).toFixed(1)
+      if (this.totalRevenue === 0) return '0.0'
+      return (((parseFloat(this.totalProfit) || 0) / (parseFloat(this.totalRevenue) || 1)) * 100).toFixed(1)
     }
   },
   mounted() {
@@ -118,6 +118,10 @@ export default {
       } catch (error) {
         console.error('加载统计数据失败:', error)
       }
+    },
+    formatMoney(value) {
+      const num = parseFloat(value) || 0
+      return num.toFixed(2)
     },
     renderChart() {
       const ctx = this.$refs.trendChart

@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="list-item-extra">
-          ¥{{ (item.price - item.cost).toFixed(2) }}
+          ¥{{ formatMoney(item.price - item.cost) }}
         </div>
       </div>
     </div>
@@ -171,6 +171,10 @@ export default {
       this.showModal = false
       this.editingId = null
       this.form = { name: '', price: '', cost: '', stock: 0, is_custom: false }
+    },
+    formatMoney(value) {
+      const num = parseFloat(value) || 0
+      return num.toFixed(2)
     }
   }
 }

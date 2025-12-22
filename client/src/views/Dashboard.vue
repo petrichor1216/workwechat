@@ -114,7 +114,8 @@ export default {
       }
     },
     formatMoney(value) {
-      return (value || 0).toFixed(2)
+      const num = parseFloat(value) || 0
+      return num.toFixed(2)
     }
   }
 }
