@@ -6,7 +6,9 @@ const { requirePermission } = require('../auth');
 // 获取销售记录列表
 router.get('/', requirePermission('sale:view'), async (req, res) => {
   try {
-    const { start_date, end_date, limit = 50, offset = 0 } = req.query;
+    const { start_date, end_date } = req.query;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
 
     let sql = 'SELECT * FROM sales';
     const params = [];
@@ -25,8 +27,7 @@ router.get('/', requirePermission('sale:view'), async (req, res) => {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
 
-    sql += ' ORDER BY sale_date DESC, created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    sql += ` ORDER BY sale_date DESC, created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
     const [sales] = await pool.execute(sql, params);
     res.json(sales);

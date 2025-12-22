@@ -18,7 +18,9 @@ router.get('/', requirePermission('inventory:view'), async (req, res) => {
 // 获取库存日志
 router.get('/logs', requirePermission('inventory:view'), async (req, res) => {
   try {
-    const { product_id, type, limit = 50, offset = 0 } = req.query;
+    const { product_id, type } = req.query;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
 
     let sql = 'SELECT * FROM inventory_logs';
     const params = [];
@@ -37,8 +39,7 @@ router.get('/logs', requirePermission('inventory:view'), async (req, res) => {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
 
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
     const [logs] = await pool.execute(sql, params);
     res.json(logs);

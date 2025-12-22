@@ -6,13 +6,9 @@ const { requirePermission } = require('../auth');
 // 获取操作日志列表
 router.get('/', requirePermission('logs:view'), async (req, res) => {
   try {
-    const {
-      action,
-      start_date,
-      end_date,
-      limit = 50,
-      offset = 0
-    } = req.query;
+    const { action, start_date, end_date } = req.query;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
 
     let sql = 'SELECT * FROM operation_logs';
     const params = [];
@@ -35,8 +31,7 @@ router.get('/', requirePermission('logs:view'), async (req, res) => {
       sql += ' WHERE ' + conditions.join(' AND ');
     }
 
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
     const [logs] = await pool.execute(sql, params);
     res.json(logs);
